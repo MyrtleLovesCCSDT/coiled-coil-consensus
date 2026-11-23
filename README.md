@@ -96,12 +96,8 @@ Homodimer and trimer metrics are computed and written to the scorecard, and they
 ## Method
 
 **Kd prediction.** Four scoring functions (`iCipa_nter`, `iCipa_vert`, `bCIPA`, `Potapov`) are sign-normalised so that higher means stronger, scanned over register shifts `-7..+7` in both orientations, and combined by ridge regression against measured log10(Kd).
+ 
 
-**Equilibrium.** Nine species — three monomers, three heterodimers, three homodimers — solved with `eqtk` under the law of mass action. Every candidate is stress-tested by Monte Carlo, perturbing all six log10(Kd) by the model's own LOO RMSE.
-
-**Design rules.** Leu is fixed at `d` and a β-branched residue or Asn at `a`, which biases towards a parallel dimer. Charges sit at `e` and `g`, with the opposite charge at `f` for solubility, and `b`/`c` alternate Ala/Ser. One Trp at `f` allows concentration to be determined by UV. Q is basic and both I and S are acidic, so the parasitic I:S, I:I and S:S pairs are suppressed electrostatically while the intended I:Q and Q:S are not.
-
-**Why 3D is not used to predict affinity.** Boltz-2 answers whether a complex is a parallel dimer in the designed register. It does not predict protein–protein binding affinity: its affinity head is trained on protein–ligand data, and when adapted to protein–protein regression it underperforms sequence-based models on both TCR3d and PPB-affinity ([King et al. 2025](https://arxiv.org/abs/2512.06592)). Our own comparison on held-out coiled-coil sets reproduces this. The 1D consensus therefore remains the affinity estimator, and the structural stage is used as a geometric cross-check: it catches hierarchy inversions and register slippage that a sequence model cannot see.
 
 ## Validation
 
@@ -128,17 +124,3 @@ Three peptides from the current shortlist, sharing `I` and `Q`:
 
 Predicted affinities and all per-design metrics live in `results/shortlist_yes_gates.csv` and `results/final_master_scorecard.csv`; they change with every rerun and are deliberately not duplicated here.
 
-## Data sources
-
-- Thomas, Boyle, Burton, Woolfson, *JACS* 2013, [10.1021/ja312310g](https://doi.org/10.1021/ja312310g) — Kd anchors, 21–28 aa
-- Aronsson et al., *Sci Rep* 2015, [10.1038/srep14063](https://doi.org/10.1038/srep14063) — Kd anchors in the weak regime
-- Crooks, Lathbridge, Panek, Mason, *Biochemistry* 2017, [10.1021/acs.biochem.7b00047](https://doi.org/10.1021/acs.biochem.7b00047) — held-out Tm set
-- Boldridge et al., *Nat Commun* 2023, [10.1038/s41467-023-38697-x](https://doi.org/10.1038/s41467-023-38697-x) — iCipa
-- Mason et al., *PNAS* 2006, [10.1073/pnas.0509880103](https://doi.org/10.1073/pnas.0509880103) — bCIPA
-- Potapov, Kaplan, Keating, *PLoS Comput Biol* 2015, [10.1371/journal.pcbi.1004046](https://doi.org/10.1371/journal.pcbi.1004046) — Potapov scorer
-
-The gate topology follows Nikitin, *Nature Chemistry* 2023, [10.1038/s41557-022-01111-y](https://doi.org/10.1038/s41557-022-01111-y), which introduced strand commutation for nucleic acids.
-
-## License
-
-MIT. See `LICENSE`.
