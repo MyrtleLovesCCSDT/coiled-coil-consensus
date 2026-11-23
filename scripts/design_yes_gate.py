@@ -18,6 +18,9 @@ sys.path.insert(0, str(ROOT))
 from src.consensus import ConsensusModel, DEFAULT_CALIB_PATH
 from src.yes_gate import mc_robustness, simulate_yes_gate, solve_equilibrium
 
+# Концентрация, при которой подбирались исходные пороги по гомодимерам.
+REF_Q0_uM = 1.0
+
 
 def net_charge(seq: str) -> int:
     return seq.count("K") + seq.count("R") - seq.count("E") - seq.count("D")
@@ -53,7 +56,7 @@ def build_soluble_3mer(a_tuple3, g_tuple3, e_tuple3):
     return "-" + raw, raw
 
 
-def generate_pools(model: ConsensusModel):
+def generate_pools(model: ConsensusModel, homo_min_nM: float = 30_000.0):
     q_pool, seen_q = [], set()
     for a_tup in [("I", "I", "N", "I"), ("I", "N", "I", "I"), ("V", "I", "N", "I")]:
         for comb in itertools.product(["K", "Q"], repeat=8):
@@ -65,7 +68,7 @@ def generate_pools(model: ConsensusModel):
                 continue
             seen_q.add(raw)
             sc_homo = model.predict_pair(pad, pad)
-            if sc_homo["Kd_nM"] < 30_000:
+            if sc_homo["Kd_nM"] < homo_min_nM:
                 continue
             q_pool.append({
                 "raw": raw, "pad": pad, "len": len(raw), "charge": chg,
@@ -89,7 +92,7 @@ def generate_pools(model: ConsensusModel):
                 continue
             seen_a.add(raw)
             sc_homo = model.predict_pair(pad, pad)
-            if sc_homo["Kd_nM"] < 30_000:
+            if sc_homo["Kd_nM"] < homo_min_nM:
                 continue
             acid_pool.append({
                 "raw": raw, "pad": pad, "len": len(raw), "charge": chg,
@@ -110,7 +113,7 @@ def generate_pools(model: ConsensusModel):
                     continue
                 seen_a.add(raw)
                 sc_homo = model.predict_pair(pad, pad)
-                if sc_homo["Kd_nM"] < 30_000:
+                if sc_homo["Kd_nM"] < homo_min_nM:
                     continue
                 acid_pool.append({
                     "raw": raw, "pad": pad, "len": len(raw), "charge": chg,
@@ -167,12 +170,27 @@ def main():
     args = parser.parse_args()
 
     model = ConsensusModel(args.calib)
+
+    # Пороги ниже были откалиброваны при Q0 = 1 uM. Доля мономера, уходящая
+    # в паразитный комплекс, идёт как ~2*C0/Kd, поэтому при другой рабочей
+    # концентрации их надо масштабировать, иначе жёсткость фильтра плывёт.
+    conc_scale = args.Q0 / REF_Q0_uM
+    homo_min_nM = 30_000.0 * conc_scale
+    safe_min_uM = 300.0 * conc_scale
+    print(f"Concentrations: S0={args.S0} Q0={args.Q0} Ion={args.Ion} uM "
+          f"-> scale={conc_scale:.2f}x, homo cutoff={homo_min_nM/1000:.0f} uM, "
+          f"safe cutoff={safe_min_uM:.0f} uM")
+
     t0 = time.time()
-    q_pool, acid_pool = generate_pools(model)
+    q_pool, acid_pool = generate_pools(model, homo_min_nM=homo_min_nM)
     print(f"Pools ready in {time.time() - t0:.1f}s: Q={len(q_pool)}, Acidic={len(acid_pool)}")
 
     triplets = []
-    for Q in q_pool:
+    t1 = time.time()
+    for q_idx, Q in enumerate(q_pool, 1):
+        if q_idx % 15 == 0 or q_idx == len(q_pool):
+            print(f"  [{q_idx}/{len(q_pool)}] triplets={len(triplets)} "
+                  f"({time.time() - t1:.0f}s)", flush=True)
         strong_i, mod_s = [], []
         for A in acid_pool:
             sc = model.predict_pair(Q["pad"], A["pad"])
@@ -189,7 +207,7 @@ def main():
                 if I["raw"] == S["raw"] or (sc_iq["pKd"] - sc_qs["pKd"]) < 1.5:
                     continue
                 sc_is = model.predict_pair(I["pad"], S["pad"])
-                if sc_is["Kd_nM"] < 30_000:
+                if sc_is["Kd_nM"] < homo_min_nM:
                     continue
                 agree_iq_qs = sum(sc_iq[m] > sc_qs[m] for m in model.models)
                 agree_qs_is = sum(sc_qs[m] > sc_is[m] for m in model.models)
@@ -230,8 +248,8 @@ def main():
     df_des.to_csv(args.out_dir / "designed_yes_gates.csv", index=False)
 
     safe = df_des[
-        (df_des["Kd_QQ_uM"] >= 300.0) & (df_des["Kd_SS_uM"] >= 300.0) &
-        (df_des["Kd_II_uM"] >= 300.0) & (df_des["Kd_IS_uM"] >= 300.0) &
+        (df_des["Kd_QQ_uM"] >= safe_min_uM) & (df_des["Kd_SS_uM"] >= safe_min_uM) &
+        (df_des["Kd_II_uM"] >= safe_min_uM) & (df_des["Kd_IS_uM"] >= safe_min_uM) &
         (df_des["QS_shift"] == 0)
     ].copy()
     safe["Class"] = safe.apply(classify_design, axis=1)

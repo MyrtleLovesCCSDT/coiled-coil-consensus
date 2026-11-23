@@ -8,6 +8,15 @@ Simple tool for predicting coiled-coil dimer Kd from sequences and screening 3-p
 - **YES-gate simulator (`src/yes_gate.py`)**: solves the 6-dimer equilibrium using `eqtk` and runs Monte Carlo stability checks.
 - **De novo gate designer (`scripts/design_yes_gate.py`)**: screens coiled-coil sequence pools and outputs ranked YES-gate triplets to `results/`.
 
+## Validation
+
+- **LOO-CV on the 14 Kd pairs**: `r = +0.917`, `R2 = 0.841`, `RMSE = 0.643` log10(M).
+  Note this is leave-one-*pair*-out, and peptides recur across pairs (e.g. `BN4` appears in
+  4 of 14), so it overstates generalisation. A leave-one-*peptide*-out split is the honest number.
+- **Zero-shot on Crooks et al. 2017** (`n = 158` Tm pairs, a different peptide family, never seen
+  during calibration): `r = +0.813`, `R2 = 0.660`. The model is fitted on molar Kd and transfers
+  to melting temperatures it was never trained on — this is the stronger evidence of the two.
+
 ## Setup
 
 ### 1. Python dependencies
