@@ -1,0 +1,3 @@
+gemmi
+boltz
+# pyrosetta (install separately via conda / RosettaCommons wheel)
