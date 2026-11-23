@@ -1,0 +1,39 @@
+{
+  "consensus_models": [
+    "iCipa_nter",
+    "iCipa_vert",
+    "bCIPA",
+    "Potapov"
+  ],
+  "lower_is_stronger": {
+    "iCipa_nter": true,
+    "iCipa_vert": true,
+    "bCIPA": true,
+    "qCIPA": true,
+    "Potapov": true
+  },
+  "scaler_mean": [
+    63.231552532741,
+    59.64253262111119,
+    48.7461918422154,
+    7.407302447727749
+  ],
+  "scaler_scale": [
+    14.722516544967641,
+    13.431640362604373,
+    21.41612282811263,
+    0.4312988662714164
+  ],
+  "ridge_coef_log10_kd": [
+    -0.4160361331882267,
+    -0.3777576021206212,
+    -0.15095473353394934,
+    -0.8071389574613974
+  ],
+  "ridge_intercept_log10_kd": -7.260991777273466,
+  "ridge_alpha": 2.030917620904735,
+  "loo_r": 0.9170110330864883,
+  "loo_rmse": 0.6432581127218054,
+  "tm_from_pKd_slope": 6.460097038137678,
+  "tm_from_pKd_intercept": -0.36924214056484317
+}
