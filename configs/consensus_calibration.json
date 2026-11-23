@@ -34,6 +34,6 @@
   "ridge_alpha": 2.030917620904735,
   "loo_r": 0.9170110330864893,
   "loo_rmse": 0.6432581127218027,
-  "tm_from_pKd_slope": 6.460097038137675,
-  "tm_from_pKd_intercept": -0.3692421405648254
+  "tm_from_pKd_slope": 6.306649291057411,
+  "tm_from_pKd_intercept": -0.03319670160626842
 }

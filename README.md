@@ -1,57 +1,16 @@
-# Coiled-Coil Consensus: YES-Gate Design via Molecular Commutation
+# coiled-coil-consensus
 
-Computational pipeline for de novo design and biophysical validation of peptide YES-gates (`I + Q:S <-> I:Q + S`) via reversible coiled-coil strand commutation, translating the concept of non-complementary information processing (Nikitin, *Nature Chemistry*, 2023) to synthetic protein systems.
+Design and screening of peptide YES-gates built from coiled coils.
 
----
-
-## Architecture Overview
-
-```text
-                      +--- [I] (Input, acidic, e.g. -5)
-                      |
-                      v
-  [Q] (Quencher/Anchor, basic, +3) : [S] (Signal/Reporter, acidic, -3/-4)
-                      |
-                      +---> Reversible displacement
-                      |
-                      v
-            [I:Q] (tight dimer)  +  [S] (free, active output)
-```
-
-1. **1D Multi-Model Consensus**: Combines 4 orthogonal scoring functions (`iCipa_nter`, `iCipa_vert`, `bCIPA`, `Potapov`) via sign-normalized Ridge regression trained on experimentally measured Kd values.
-2. **Law of Mass Action Equilibrium (`eqtk`)**: Simulates 9-species equilibrium (6 dimers + 3 monomers) with Monte Carlo stress-testing (sigma = RMSE_LOO) over all affinity constants.
-3. **Sequence Design Rules**: Enforces designed heptad register (`d=L`, `b/c=A/S`), electrostatic asymmetry (E/K -> Q/A), and buried polar specificity (`Asn` at core position `a`).
-4. **Full-Atom 3D Validation**: Evaluates target heterodimers, homodimers, and potential trimer traps (`IQQ`, `IIQ`, `QQQ`) using Boltz-2 structure prediction and PyRosetta energy relaxation.
-
----
-
-## Repository Structure
+A gate is three peptides. `Q` holds the signal peptide `S` in a moderate-affinity heterodimer. Adding the input peptide `I`, which binds `Q` more tightly, displaces `S` and releases it. The output is free `S`:
 
 ```
-coiled-coil-consensus/
-|-- configs/
-|   `-- consensus_calibration.json   # Fitted Ridge coefficients & normalization scalers
-|-- src/
-|   |-- anchors.py                   # Reference experimental datasets (Thomas, Aronsson, Crooks)
-|   |-- consensus.py                 # Multi-model scoring & register inference
-|   |-- yes_gate.py                  # EQTK equilibrium & Monte Carlo robustness
-|   `-- structure_3d.py              # CIF coordinate parsing & geometric auditing
-|-- scripts/
-|   |-- calibrate.py                 # Fit 1D consensus on experimental anchors
-|   |-- design_yes_gate.py           # Rational design & candidate screening
-|   |-- export_3d_jobs.py            # Generate Boltz-2 YAML & ColabFold FASTA jobs
-|   |-- analyze_boltz.py             # Extract 3D metrics from Boltz-2 CIF predictions
-|   |-- score_rosetta.py             # PyRosetta FastRelax & InterfaceAnalyzer scoring
-|   `-- rank_final.py                # Multi-stage ranking with trimer and homodimer veto
-|-- requirements.txt
-`-- requirements-3d.txt              # Optional dependencies for 3D validation
+I + Q:S  <->  I:Q + S
 ```
 
----
+Selection happens in two stages. A sequence-level model predicts Kd for every pair, and the gate is solved as a mass-action equilibrium. Surviving candidates are then checked structurally with Boltz-2 and PyRosetta.
 
-## Installation
-
-### 1. Python Environment
+## Install
 
 ```bash
 git clone https://github.com/MyrtleLovesCCSDT/coiled-coil-consensus.git
@@ -59,117 +18,127 @@ cd coiled-coil-consensus
 pip install -r requirements.txt
 ```
 
-### 2. Building `pyccscore`
+### pyccscore
 
-The consensus predictor relies on `pyccscore` compiled from [dancsi/OrthoCCTools](https://github.com/dancsi/OrthoCCTools) or [ajasja/NGB2H](https://github.com/ajasja/NGB2H) (`01_ortoCC_score`):
+The scoring functions come from `pyccscore`, a C++20/pybind11 extension. It is not on PyPI and must be built. Requires a C++20 compiler, Python development headers, OpenMP and CMake.
 
 ```bash
-git clone https://github.com/ajasja/NGB2H.git
+git clone --recurse-submodules https://github.com/ajasja/NGB2H.git
 cd NGB2H/01_ortoCC_score
-mkdir build && cd build
-cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release ..
-cmake --build . --config Release
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+cmake --build build --target pyccscore -j
+export PYTHONPATH="$PWD/build/src/pyccscore:$PYTHONPATH"
 ```
 
-Ensure the compiled `.so` (Linux/macOS) or `.pyd` (Windows) is accessible on your `PYTHONPATH`:
+The same code is also available directly from [dancsi/OrthoCCTools](https://github.com/dancsi/OrthoCCTools).
+
+On macOS: Apple Clang ships without OpenMP, so install `libomp` and point `-DOpenMP_*` at it. If the vendored `spdlog/fmt` headers fail on `consteval`, set `FMT_USE_CONSTEVAL` to `0` in `src/external/spdlog/include/spdlog/fmt/bundled/core.h`.
+
+### 3D validation (optional)
 
 ```bash
-export PYTHONPATH="/path/to/01_ortoCC_score/build/src/pyccscore:$PYTHONPATH"
+pip install -r requirements-3d.txt
 ```
 
-*Note for modern Clang / C++20*: If compiling against newer standard libraries, ensure `FMT_USE_CONSTEVAL = 0` is set in the vendored `spdlog/fmt` headers if consteval errors occur.
+PyRosetta is licence-gated and is not installed from PyPI — obtain it from [rosettacommons.org](https://www.rosettacommons.org/software/license-and-download).
 
----
+## Usage
 
-## Quickstart Pipeline
-
-### Step 1: Consensus Calibration
-
-Fits 1D Ridge regression on combined Thomas et al. (2013) and Aronsson et al. (2015) anchor data:
+### 1. Calibrate
 
 ```bash
-python scripts/calibrate.py --out configs/consensus_calibration.json --save-csv
+python scripts/calibrate.py
 ```
 
-- **LOO-CV on Kd anchors (n=14)**: r = +0.931, R2 = 0.868, RMSE = 0.62 log10(M)
-- **Zero-shot Crooks et al. (2017) Tm (n=158)**: r = +0.813, R2 = 0.661
+Fits the consensus on 14 measured Kd pairs and writes `configs/consensus_calibration.json`. Prints both validation metrics.
 
-### Step 2: YES-Gate Screening & Audit
-
-Screens de novo soluble candidates and audits switching behavior at target operating concentrations:
+### 2. Screen
 
 ```bash
-python scripts/design_yes_gate.py --S0 0.5 --Q0 5.0 --Ion 12.5 --n-mc 200
+python scripts/design_yes_gate.py --S0 0.5 --Q0 5.0 --Ion 12.5
 ```
 
-Outputs:
-- `results/designed_yes_gates.csv`: Full screened library.
-- `results/shortlist_yes_gates.csv`: Pareto-optimal candidates by architectural class and regime.
-- `results/yes_gate_titration.png`: Equilibrium titration curves for representative designs.
+Builds sequence pools, scores all pairs, solves the equilibrium and ranks the survivors.
 
----
+| Output | Contents |
+| --- | --- |
+| `results/designed_yes_gates.csv` | Every triplet that passed the equilibrium filters |
+| `results/shortlist_yes_gates.csv` | Best candidates per architectural class and affinity regime |
+| `results/yes_gate_titration.png` | `[S]free` against `[I]0` for representative designs |
 
-## 3D Validation Pipeline (Optional)
+Concentrations are arguments because the thresholds depend on them: the fraction of a peptide lost to a parasitic complex scales as `~2*C0/Kd`, so the homodimer cutoffs are derived from `--Q0` rather than hardcoded.
 
-Requires `boltz`, `gemmi`, and `pyrosetta` (see `requirements-3d.txt`).
-
-### 1. Export Target Complexes & Controls
-
-Generates inputs for all dimers (`I:Q`, `Q:S`, `I:S`), homodimers (`I:I`, `Q:Q`, `S:S`), trimer traps (`IQQ`, `IIQ`, `QQQ`), and experimental controls:
+### 3. Validate in 3D
 
 ```bash
 python scripts/export_3d_jobs.py
-```
-
-### 2. Predict Structures via Boltz-2
-
-```bash
 boltz predict results/3d_inputs/boltz_yaml --out_dir results/boltz_out
-```
-
-### 3. Extract Geometry, Relax with PyRosetta, and Rank
-
-```bash
 python scripts/analyze_boltz.py
 python scripts/score_rosetta.py
 python scripts/rank_final.py
 ```
 
-Outputs `results/final_master_scorecard.csv` and `results/final_3d_master_summary.png`.
+Produces `results/final_master_scorecard.csv` and `results/final_3d_master_summary.png`.
 
-A candidate achieves `Passed_3D = True` only if it satisfies all of the following:
-- Thermodynamic hierarchy: `dG(IQ) < dG(QS) << dG(IS)`
-- Homodimer suppression: `dG(QQ)` and `dG(II)` are strictly suppressed relative to reference homodimers
-- Trimer veto (`Trimer_Safe = True`): Rejects designs where any competitor trimer forms a well-packed hydrophobic core without unsatisfied buried hydrogen bonds.
+Exported jobs cover the three target dimers, the `Q:Q` and `S:S` homodimers, competing trimers (`IQQ`, `IIQ`, `QQQ`), and the experimental control pairs. Controls carry their measured Kd in the manifest, which is what maps Rosetta REU onto a molar scale — without them interface energies are dimensionless.
 
----
+Boltz-2 jobs are written with `msa: empty`. These peptides are short and de novo, and an MSA pulls in fragments of natural coiled coils that distort the register. Run ColabFold with `--msa-mode single_sequence` for the same reason.
 
-## Reference Benchmarks
+`Passed_3D` currently requires:
 
-| Benchmark Dataset | Metric | Consensus Value | Description |
-| :--- | :--- | :--- | :--- |
-| **Thomas + Aronsson (n=14)** | LOO r / RMSE | +0.931 / 0.62 | Cross-validated log10(Kd) accuracy |
-| **Crooks et al. (n=158)** | Zero-shot r / R2 | +0.813 / 0.661 | Zero-shot Tm linear regression |
-| **NGB2H CCmax (n=17,977)** | ROC-AUC | 0.884 | Distinguishing high-affinity from non-binding pairs |
-| **Rosetta Controls (n=6)** | Pearson r / Spearman rho | +0.858 / +0.928 | Interface dG_separated vs experimental log10(Kd) |
+- `dG_separated(Q:S)` below `--max-dg-qs`
+- `dG(Q:S) - dG(I:Q) >= --min-gap-iq-qs`, so the input outcompetes the signal peptide
+- `dG(I:S) - dG(Q:S) >= --min-gap-qs-is`, so the parasitic pair stays weak
+- `MC_Pass_rate >= --min-mc-pass` from the 1D stage
 
----
+Homodimer and trimer metrics are computed and written to the scorecard, and they enter `Total_Score`, but they are not yet part of the pass/fail gate. `homo_II` is not exported either. Treat the trimer columns as diagnostics to read, not as a filter that has already been applied.
 
-## Top Validated Designs
+## Method
 
-From the final multi-stage selection, representative winning candidates include:
+**Kd prediction.** Four scoring functions (`iCipa_nter`, `iCipa_vert`, `bCIPA`, `Potapov`) are sign-normalised so that higher means stronger, scanned over register shifts `-7..+7` in both orientations, and combined by ridge regression against measured log10(Kd).
 
-- **D13** (Class: `Truncated_24aa`, Regime: `HighContrast_<3nM`):
-  - Kd(IQ) ~ 0.82 nM, Kd(QS) ~ 0.15 uM, MC Pass = 76%
-  - Rosetta: dG(IQ) = -63.32 REU, dG(QS) = -55.01 REU, Gap = +8.30 REU
-  - Trimer audit: Unsatisfied H-bonds jump from 0 in dimer to 4.67 in trimer; trimer safe.
-- **Shared Input Pair for Synthesis**:
-  - `I` (shared, 28 aa): `EIASLEKEISALEKENASLEWEISALEK`
-  - `Q_D13` (28 aa): `KVASLKEQISALKEKNASLKWQISALKE`
-  - `S_D13` (24 aa, C-terminal aligned): `LEKEISALESENASLQWEISALEK`
+**Equilibrium.** Nine species — three monomers, three heterodimers, three homodimers — solved with `eqtk` under the law of mass action. Every candidate is stress-tested by Monte Carlo, perturbing all six log10(Kd) by the model's own LOO RMSE.
 
----
+**Design rules.** Leu is fixed at `d` and a β-branched residue or Asn at `a`, which biases towards a parallel dimer. Charges sit at `e` and `g`, with the opposite charge at `f` for solubility, and `b`/`c` alternate Ala/Ser. One Trp at `f` allows concentration to be determined by UV. Q is basic and both I and S are acidic, so the parasitic I:S, I:I and S:S pairs are suppressed electrostatically while the intended I:Q and Q:S are not.
+
+**Why 3D is not used to predict affinity.** Boltz-2 answers whether a complex is a parallel dimer in the designed register. It does not predict protein–protein binding affinity: its affinity head is trained on protein–ligand data, and when adapted to protein–protein regression it underperforms sequence-based models on both TCR3d and PPB-affinity ([King et al. 2025](https://arxiv.org/abs/2512.06592)). Our own comparison on held-out coiled-coil sets reproduces this. The 1D consensus therefore remains the affinity estimator, and the structural stage is used as a geometric cross-check: it catches hierarchy inversions and register slippage that a sequence model cannot see.
+
+## Validation
+
+| Benchmark | Metric | Value |
+| --- | --- | --- |
+| Thomas 2013 + Aronsson 2015, n=14 | LOO-CV on log10(Kd) | r = +0.917, R² = 0.841, RMSE = 0.643 |
+| Crooks 2017, n=158 | zero-shot Tm | r = +0.813, R² = 0.660 |
+
+The second row is the stronger of the two. It is a different peptide family, never seen during calibration, and the model is fitted on molar Kd yet transfers to melting temperatures it was never trained on.
+
+The first row overstates generalisation: it is leave-one-*pair*-out, and peptides recur across pairs — `BN4` appears in 4 of the 14 — so a held-out pair is scored by a model that has already seen both of its peptides. A leave-one-*peptide*-out split is the honest number.
+
+Two further limits worth stating. The calibration set contains exactly one homodimer (`BN4:BN4`, Kd 48 µM), so homodimer predictions below that are extrapolation. And `score_rosetta.py` prints control correlations on each run — read them from the run rather than from here, since they depend on which control jobs completed.
+
+## Reference designs
+
+Three peptides from the current shortlist, sharing `I` and `Q`:
+
+| Role | Length | Sequence | Net charge |
+| --- | --- | --- | --- |
+| `I` | 28 | `EIASLEKEISALEKENASLEWEISALEK` | −5 |
+| `Q` | 28 | `KVASLKEQISALKEKNASLKWQISALKE` | +3 |
+| `S` | 24 | `LEKEISALESENASLQWEISALEK` | −4 |
+
+Predicted affinities and all per-design metrics live in `results/shortlist_yes_gates.csv` and `results/final_master_scorecard.csv`; they change with every rerun and are deliberately not duplicated here.
+
+## Data sources
+
+- Thomas, Boyle, Burton, Woolfson, *JACS* 2013, [10.1021/ja312310g](https://doi.org/10.1021/ja312310g) — Kd anchors, 21–28 aa
+- Aronsson et al., *Sci Rep* 2015, [10.1038/srep14063](https://doi.org/10.1038/srep14063) — Kd anchors in the weak regime
+- Crooks, Lathbridge, Panek, Mason, *Biochemistry* 2017, [10.1021/acs.biochem.7b00047](https://doi.org/10.1021/acs.biochem.7b00047) — held-out Tm set
+- Boldridge et al., *Nat Commun* 2023, [10.1038/s41467-023-38697-x](https://doi.org/10.1038/s41467-023-38697-x) — iCipa
+- Mason et al., *PNAS* 2006, [10.1073/pnas.0509880103](https://doi.org/10.1073/pnas.0509880103) — bCIPA
+- Potapov, Kaplan, Keating, *PLoS Comput Biol* 2015, [10.1371/journal.pcbi.1004046](https://doi.org/10.1371/journal.pcbi.1004046) — Potapov scorer
+
+The gate topology follows Nikitin, *Nature Chemistry* 2023, [10.1038/s41557-022-01111-y](https://doi.org/10.1038/s41557-022-01111-y), which introduced strand commutation for nucleic acids.
 
 ## License
 
-MIT License. See `LICENSE` for details.
+MIT. See `LICENSE`.
