@@ -72,8 +72,8 @@ def solve_equilibrium(c0_rows: np.ndarray, kd_vec: np.ndarray) -> np.ndarray:
 def simulate_yes_gate(
     kd_dict: Dict[str, float],
     s0_uM: float = 0.5,
-    q0_uM: float = 1.0,
-    i_on_uM: float = 2.5,
+    q0_uM: float = 5.0,
+    i_on_uM: float = 12.5,
 ) -> dict:
     """Simulate OFF ([I]=0) and ON ([I]=i_on_uM) states for I + QS <-> IQ + S."""
     c0 = np.zeros((2, 9))
@@ -107,8 +107,8 @@ def simulate_yes_gate(
 def mc_robustness(
     log10_kds_base: np.ndarray,
     s0_uM: float = 0.5,
-    q0_uM: float = 1.0,
-    i_on_uM: float = 2.5,
+    q0_uM: float = 5.0,
+    i_on_uM: float = 12.5,
     n_mc: int = 200,
     sigma: float = 0.62,
     seed: int = 42,
@@ -149,8 +149,8 @@ def evaluate_triplet(
     q_reg: Optional[str] = None,
     s_reg: Optional[str] = None,
     s0_uM: float = 0.5,
-    q0_uM: float = 1.0,
-    i_on_uM: float = 2.5,
+    q0_uM: float = 5.0,
+    i_on_uM: float = 12.5,
     n_mc: int = 200,
     sigma: Optional[float] = None,
 ) -> dict:

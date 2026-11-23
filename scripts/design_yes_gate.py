@@ -129,28 +129,28 @@ def classify_design(r) -> str:
     return "4mer_Ile_core_QA"
 
 
-def plot_titration(df_short: pd.DataFrame, out_path: Path):
+def plot_titration(df_short: pd.DataFrame, out_path: Path, s0_uM: float, q0_uM: float, i_on_uM: float):
     if df_short.empty:
         return
     fig, ax = plt.subplots(figsize=(6.5, 4.5), dpi=150)
-    i_grid = np.linspace(0, 4.0, 60)
-    for idx, (_, r) in enumerate(df_short.drop_duplicates("Class").head(4).iterrows()):
+    i_grid = np.linspace(0, i_on_uM * 1.4, 80)
+    for _, r in df_short.drop_duplicates("Class").head(4).iterrows():
         kd_vec = np.array([
             r["Kd_IQ_nM"] * 1e-9, r["Kd_QS_uM"] * 1e-6, r["Kd_IS_uM"] * 1e-6,
             r["Kd_II_uM"] * 1e-6, r["Kd_QQ_uM"] * 1e-6, r["Kd_SS_uM"] * 1e-6,
         ])
         c0 = np.zeros((len(i_grid), 9))
         c0[:, 0] = i_grid * 1e-6
-        c0[:, 1] = 1.0e-6
-        c0[:, 2] = 0.5e-6
+        c0[:, 1] = q0_uM * 1e-6
+        c0[:, 2] = s0_uM * 1e-6
         eq = solve_equilibrium(c0, kd_vec)
         lbl = f"{r['Class']}: IQ={r['Kd_IQ_nM']:.1f}nM, QS={r['Kd_QS_uM']:.2f}uM (MC {100*r['MC_Pass_rate']:.0f}%)"
-        ax.plot(i_grid, eq[:, 2] / 0.5e-6, lw=2, label=lbl)
-    ax.axvline(1.0, color="gray", ls="--", lw=1, label="[Q]0 = 1.0 uM")
+        ax.plot(i_grid, eq[:, 2] / (s0_uM * 1e-6), lw=2, label=lbl)
+    ax.axvline(q0_uM, color="gray", ls="--", lw=1, label=f"[Q]0 = {q0_uM:.1f} uM")
     ax.set_xlabel("[I]0 (uM)")
     ax.set_ylabel("[S]free / [S]0")
     ax.set_ylim(-0.02, 1.05)
-    ax.set_title("Designed YES-gate titration curves")
+    ax.set_title(f"Designed YES-gate titration curves (S0={s0_uM} uM, Q0={q0_uM} uM)")
     ax.legend(fontsize=8)
     plt.tight_layout()
     plt.savefig(out_path)
@@ -161,6 +161,9 @@ def main():
     parser.add_argument("--calib", type=Path, default=DEFAULT_CALIB_PATH)
     parser.add_argument("--out-dir", type=Path, default=ROOT / "results")
     parser.add_argument("--n-mc", type=int, default=200)
+    parser.add_argument("--S0", type=float, default=0.5, help="[S]0 in uM")
+    parser.add_argument("--Q0", type=float, default=5.0, help="[Q]0 in uM")
+    parser.add_argument("--Ion", type=float, default=12.5, help="[I]on in uM")
     args = parser.parse_args()
 
     model = ConsensusModel(args.calib)
@@ -169,10 +172,7 @@ def main():
     print(f"Pools ready in {time.time() - t0:.1f}s: Q={len(q_pool)}, Acidic={len(acid_pool)}")
 
     triplets = []
-    t1 = time.time()
-    for q_idx, Q in enumerate(q_pool, 1):
-        if q_idx % 15 == 0 or q_idx == len(q_pool):
-            print(f"  [{q_idx}/{len(q_pool)}] triplets={len(triplets)} ({time.time() - t1:.0f}s)", flush=True)
+    for Q in q_pool:
         strong_i, mod_s = [], []
         for A in acid_pool:
             sc = model.predict_pair(Q["pad"], A["pad"])
@@ -200,7 +200,7 @@ def main():
                     "IQ": 10.0 ** (-sc_iq["pKd"]), "QS": 10.0 ** (-sc_qs["pKd"]), "IS": 10.0 ** (-sc_is["pKd"]),
                     "II": 10.0 ** (-I["homo_pKd"]), "QQ": 10.0 ** (-Q["homo_pKd"]), "SS": 10.0 ** (-S["homo_pKd"]),
                 }
-                eq_res = simulate_yes_gate(kd_dict)
+                eq_res = simulate_yes_gate(kd_dict, s0_uM=args.S0, q0_uM=args.Q0, i_on_uM=args.Ion)
                 if eq_res["Delta_S_free"] < 0.45 or eq_res["IS_leak_ON"] > 0.05:
                     continue
 
@@ -251,7 +251,14 @@ def main():
                 np.log10(r["Kd_IS_uM"] * 1e-6), np.log10(r["Kd_II_uM"] * 1e-6),
                 np.log10(r["Kd_QQ_uM"] * 1e-6), np.log10(r["Kd_SS_uM"] * 1e-6),
             ])
-            mc = mc_robustness(log10_vec, n_mc=args.n_mc, sigma=model.loo_rmse)
+            mc = mc_robustness(
+                log10_vec,
+                s0_uM=args.S0,
+                q0_uM=args.Q0,
+                i_on_uM=args.Ion,
+                n_mc=args.n_mc,
+                sigma=model.loo_rmse,
+            )
             scored.append({
                 "Class": cls, "Regime": reg,
                 "Kd_IQ_nM": r["Kd_IQ_nM"], "Kd_QS_uM": r["Kd_QS_uM"], "Kd_IS_uM": r["Kd_IS_uM"],
@@ -270,7 +277,7 @@ def main():
     df_short = pd.concat(shortlist, ignore_index=True) if shortlist else pd.DataFrame()
     if not df_short.empty:
         df_short.to_csv(args.out_dir / "shortlist_yes_gates.csv", index=False)
-        plot_titration(df_short, args.out_dir / "yes_gate_titration.png")
+        plot_titration(df_short, args.out_dir / "yes_gate_titration.png", args.S0, args.Q0, args.Ion)
         print(f"Shortlist saved ({len(df_short)} triplets) to {args.out_dir / 'shortlist_yes_gates.csv'}")
 
 
